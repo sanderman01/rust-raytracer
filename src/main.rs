@@ -16,20 +16,20 @@ fn main() {
     let camera = Camera {
         position: Vec3::new(0.0, 0.0, 1.0),
         direction: Vec3::new(0.0, 0.0, -1.0),
-        field_of_view: 30.0,
+        field_of_view: 45.0,
     };
 
     let sphere = Box::new(Sphere {
         position: vec3(0.0, 0.0, -1.0),
-        radius: 0.5,
+        radius: 1.0,
     });
     let sphere1 = Box::new(Sphere {
-        position: vec3(1.0, 0.0, -1.0),
-        radius: 0.5,
+        position: vec3(2.0, 0.0, -1.0),
+        radius: 1.0,
     });
     let sphere2 = Box::new(Sphere {
-        position: vec3(-1.0, 0.0, -1.0),
-        radius: 0.5,
+        position: vec3(-2.0, 0.0, -1.0),
+        radius: 1.0,
     });
     let sphere3 = Box::new(Sphere {
         position: vec3(0.0, -101.0, 0.0),
@@ -66,7 +66,8 @@ fn render_image(camera: &Camera, scene: &Vec<Box<SceneObject>>, image: &mut RgbI
                 total_color += color;
             }
             let total_color = total_color / num_samples as f32;
-            image.put_pixel(x, y, vec3_to_rgb(&total_color));
+            let final_color = encode_gamma(&total_color, 2.2);
+            image.put_pixel(x, y, vec3_to_rgb(&final_color));
         }
     }
 }
@@ -222,4 +223,10 @@ fn rand_unit_sphere() -> Vec3 {
         p = 2.0 * Vec3::new(rng.gen(), rng.gen(), rng.gen()) - vec3(1.0, 1.0, 1.0);
     }
     p
+}
+
+fn encode_gamma(color: &Vec3, gamma: f32) -> Vec3 {
+    let inv = 1.0 / gamma;
+    let exp = vec3(inv, inv, inv);
+    glm::pow(color, &exp)
 }
