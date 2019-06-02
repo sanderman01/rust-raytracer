@@ -1,8 +1,10 @@
 extern crate image;
 extern crate nalgebra_glm as glm;
+extern crate rand;
 
 use glm::{dot, normalize, vec3, Vec3};
 use image::{Rgb, RgbImage};
+use rand::Rng;
 use std::path::Path;
 
 fn main() {
@@ -13,25 +15,27 @@ fn main() {
     let camera = Camera {
         position: Vec3::new(0.0, 0.0, 1.0),
         direction: Vec3::new(0.0, 0.0, -1.0),
-        field_of_view: 45.0,
+        field_of_view: 30.0,
     };
 
     let sphere = Box::new(Sphere {
         position: vec3(0.0, 0.0, -1.0),
         radius: 0.5,
     });
-
     let sphere1 = Box::new(Sphere {
         position: vec3(1.0, 0.0, -1.0),
         radius: 0.5,
     });
-
     let sphere2 = Box::new(Sphere {
         position: vec3(-1.0, 0.0, -1.0),
         radius: 0.5,
     });
+    let sphere3 = Box::new(Sphere {
+        position: vec3(0.0, -101.0, 0.0),
+        radius: 100.0,
+    });
 
-    let scene: Vec<Box<SceneObject>> = vec![sphere, sphere1, sphere2];
+    let scene: Vec<Box<SceneObject>> = vec![sphere, sphere1, sphere2, sphere3];
 
     render_image(&camera, &scene, &mut img);
 
@@ -49,19 +53,19 @@ fn render_image(camera: &Camera, scene: &Vec<Box<SceneObject>>, image: &mut RgbI
             let u = x as f32 / width as f32;
             let v = y as f32 / height as f32;
             let ray = camera.screen_to_ray(u, v, aspect_ratio);
-            let color = trace_ray(&ray, &scene, 0.0, std::f32::MAX);
+            let color = trace_ray(&ray, &scene);
             image.put_pixel(x, y, vec3_to_rgb(&color));
         }
     }
 }
 
-fn trace_ray(ray: &Ray, scene: &Vec<Box<SceneObject>>, t_min: f32, t_max: f32) -> Vec3 {
+fn trace_ray(ray: &Ray, scene: &Vec<Box<SceneObject>>) -> Vec3 {
     // determine closest hit
-    let mut closest: f32 = t_max;
+    let mut closest: f32 = std::f32::MAX;
     let mut result: Option<HitResult> = None;
 
     for obj in scene.iter() {
-        match obj.ray_hit(&ray, t_min, t_max) {
+        match obj.ray_hit(&ray, 0.0, std::f32::MAX) {
             None => {}
             Some(h) => {
                 if h.t < closest {
@@ -74,7 +78,16 @@ fn trace_ray(ray: &Ray, scene: &Vec<Box<SceneObject>>, t_min: f32, t_max: f32) -
 
     // return color for closest hit, or background
     match result {
-        Some(h) => h.normal,
+        // we hit something, so do a bounce in a random direction
+        Some(h) => {
+            let newRay = Ray {
+                origin: h.point,
+                direction: h.normal + rand_unit_sphere(),
+            };
+            // absorb half the energy on bounce
+            0.5 * trace_ray(&newRay, &scene)
+        }
+        // we did not hit anything, so return background color
         None => background_color_gradient(&ray),
     }
 }
@@ -188,4 +201,13 @@ fn vec3_to_rgb(v: &Vec3) -> Rgb<u8> {
     let a = v * 255.99;
     let b = glm::clamp(&a, 0.0, 255.0);
     Rgb([b.x as u8, b.y as u8, b.z as u8])
+}
+
+fn rand_unit_sphere() -> Vec3 {
+    let mut rng = rand::thread_rng();
+    let mut p: Vec3 = vec3(1.0, 1.0, 1.0);
+    while glm::length2(&p) > 1.0 {
+        p = 2.0 * Vec3::new(rng.gen(), rng.gen(), rng.gen()) - vec3(1.0, 1.0, 1.0);
+    }
+    p
 }
