@@ -6,6 +6,7 @@ use glm::{dot, normalize, vec3, Vec3};
 use image::{Rgb, RgbImage};
 use rand::Rng;
 use std::path::Path;
+use std::time::Instant;
 
 fn main() {
     let width = 512;
@@ -37,7 +38,10 @@ fn main() {
 
     let scene: Vec<Box<SceneObject>> = vec![sphere, sphere1, sphere2, sphere3];
 
+    let now = Instant::now();
     render_image(&camera, &scene, &mut img);
+    let duration = now.elapsed().as_secs();
+    println!("rendering image took {:.2}s", duration);
 
     let path = &Path::new("target/out.png");
     let _ = img.save(path);
@@ -47,14 +51,22 @@ fn render_image(camera: &Camera, scene: &Vec<Box<SceneObject>>, image: &mut RgbI
     let width = image.width();
     let height = image.height();
     let aspect_ratio = (width as f32) / (height as f32);
-
+    let num_samples = 100;
+    let mut rng = rand::thread_rng();
+    // for each pixel
     for y in 0..height {
         for x in 0..width {
-            let u = x as f32 / width as f32;
-            let v = y as f32 / height as f32;
-            let ray = camera.screen_to_ray(u, v, aspect_ratio);
-            let color = trace_ray(&ray, &scene);
-            image.put_pixel(x, y, vec3_to_rgb(&color));
+            // do a number of ray samples
+            let mut total_color = vec3(0.0, 0.0, 0.0);
+            for s in 0..num_samples {
+                let u: f32 = (x as f32 + rng.gen::<f32>()) / width as f32;
+                let v: f32 = (y as f32 + rng.gen::<f32>()) / height as f32;
+                let ray = camera.screen_to_ray(u, v, aspect_ratio);
+                let color = trace_ray(&ray, &scene);
+                total_color += color;
+            }
+            let total_color = total_color / num_samples as f32;
+            image.put_pixel(x, y, vec3_to_rgb(&total_color));
         }
     }
 }
@@ -65,7 +77,7 @@ fn trace_ray(ray: &Ray, scene: &Vec<Box<SceneObject>>) -> Vec3 {
     let mut result: Option<HitResult> = None;
 
     for obj in scene.iter() {
-        match obj.ray_hit(&ray, 0.0, std::f32::MAX) {
+        match obj.ray_hit(&ray, 0.001, std::f32::MAX) {
             None => {}
             Some(h) => {
                 if h.t < closest {
