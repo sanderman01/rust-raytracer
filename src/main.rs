@@ -44,25 +44,11 @@ fn render_image(camera: &Camera, scene: &Vec<Box<SceneObject>>, image: &mut RgbI
     let height = image.height();
     let aspect_ratio = (width as f32) / (height as f32);
 
-    // define rectangle through which we will shoot our rays, aka our viewport.
-    let angle_rad = camera.field_of_view.to_radians();
-
-    let rect_dist = angle_rad.cos();
-    let rect_extends_y = angle_rad.sin();
-    let rect_extends_x = rect_extends_y * aspect_ratio;
-    let horizontal = vec3(rect_extends_x, 0.0, 0.0) * 2.0;
-    let vertical = vec3(0.0, rect_extends_y, 0.0) * 2.0;
-
-    let lower_left = vec3(-rect_extends_x, -rect_extends_y, -rect_dist);
-
     for y in 0..height {
         for x in 0..width {
             let u = x as f32 / width as f32;
             let v = y as f32 / height as f32;
-
-            let origin = camera.position;
-            let direction = lower_left + horizontal * u + vertical * (1.0 - v);
-            let ray = Ray { origin, direction };
+            let ray = camera.screen_to_ray(u, v, aspect_ratio);
             let color = trace_ray(&ray, &scene, 0.0, std::f32::MAX);
             image.put_pixel(x, y, vec3_to_rgb(&color));
         }
@@ -157,6 +143,26 @@ struct Camera {
     position: Vec3,
     direction: Vec3,
     field_of_view: f32,
+}
+
+impl Camera {
+    fn screen_to_ray(&self, u: f32, v: f32, aspect_ratio: f32) -> Ray {
+        // define rectangle through which we will shoot our rays, aka our viewport.
+        let angle_rad = self.field_of_view.to_radians();
+
+        let rect_dist = angle_rad.cos();
+        let rect_extends_y = angle_rad.sin();
+        let rect_extends_x = rect_extends_y * aspect_ratio;
+        let horizontal = vec3(rect_extends_x, 0.0, 0.0) * 2.0;
+        let vertical = vec3(0.0, rect_extends_y, 0.0) * 2.0;
+
+        let lower_left = vec3(-rect_extends_x, -rect_extends_y, -rect_dist);
+
+        let origin = self.position;
+        let direction = lower_left + horizontal * u + vertical * (1.0 - v);
+
+        Ray { origin, direction }
+    }
 }
 
 struct Ray {
