@@ -9,8 +9,8 @@ use std::path::Path;
 use std::time::Instant;
 
 fn main() {
-    let width = 512;
-    let height = 256;
+    let width = 1024;
+    let height = 512;
     let mut img: RgbImage = RgbImage::new(width, height);
 
     let camera = Camera {
@@ -22,21 +22,33 @@ fn main() {
     let sphere = Box::new(Sphere {
         position: vec3(0.0, 0.0, -1.0),
         radius: 1.0,
+        material: Box::new(Diffuse {
+            albedo: vec3(0.5, 1.0, 0.5),
+        }),
     });
     let sphere1 = Box::new(Sphere {
         position: vec3(2.0, 0.0, -1.0),
         radius: 1.0,
+        material: Box::new(Diffuse {
+            albedo: vec3(0.5, 0.5, 1.0),
+        }),
     });
     let sphere2 = Box::new(Sphere {
         position: vec3(-2.0, 0.0, -1.0),
         radius: 1.0,
+        material: Box::new(Diffuse {
+            albedo: vec3(1.0, 0.5, 0.5),
+        }),
     });
     let sphere3 = Box::new(Sphere {
         position: vec3(0.0, -101.0, 0.0),
         radius: 100.0,
+        material: Box::new(Diffuse {
+            albedo: vec3(1.0, 1.0, 1.0),
+        }),
     });
 
-    let scene: Vec<Box<SceneObject>> = vec![sphere, sphere1, sphere2, sphere3];
+    let scene: Vec<Box<dyn SceneObject>> = vec![sphere, sphere1, sphere2, sphere3];
 
     let now = Instant::now();
     render_image(&camera, &scene, &mut img);
@@ -51,18 +63,19 @@ fn render_image(camera: &Camera, scene: &Vec<Box<SceneObject>>, image: &mut RgbI
     let width = image.width();
     let height = image.height();
     let aspect_ratio = (width as f32) / (height as f32);
-    let num_samples = 100;
+    let num_samples = 32;
     let mut rng = rand::thread_rng();
     // for each pixel
     for y in 0..height {
         for x in 0..width {
             // do a number of ray samples
             let mut total_color = vec3(0.0, 0.0, 0.0);
-            for s in 0..num_samples {
+            for _s in 0..num_samples {
                 let u: f32 = (x as f32 + rng.gen::<f32>()) / width as f32;
                 let v: f32 = (y as f32 + rng.gen::<f32>()) / height as f32;
                 let ray = camera.screen_to_ray(u, v, aspect_ratio);
-                let color = trace_ray(&ray, &scene);
+                let depth = 0;
+                let color = trace_ray(&ray, &scene, depth);
                 total_color += color;
             }
             let total_color = total_color / num_samples as f32;
@@ -72,13 +85,17 @@ fn render_image(camera: &Camera, scene: &Vec<Box<SceneObject>>, image: &mut RgbI
     }
 }
 
-fn trace_ray(ray: &Ray, scene: &Vec<Box<SceneObject>>) -> Vec3 {
+fn scene_hit<'a>(
+    ray: &Ray,
+    scene: &'a Vec<Box<SceneObject>>,
+    min_t: f32,
+    max_t: f32,
+) -> Option<HitRecord<'a>> {
     // determine closest hit
     let mut closest: f32 = std::f32::MAX;
-    let mut result: Option<HitResult> = None;
-
+    let mut result: Option<HitRecord> = None;
     for obj in scene.iter() {
-        match obj.ray_hit(&ray, 0.001, std::f32::MAX) {
+        match obj.ray_hit(&ray, min_t, max_t) {
             None => {}
             Some(h) => {
                 if h.t < closest {
@@ -88,17 +105,22 @@ fn trace_ray(ray: &Ray, scene: &Vec<Box<SceneObject>>) -> Vec3 {
             }
         }
     }
+    result
+}
 
+fn trace_ray(ray: &Ray, scene: &Vec<Box<SceneObject>>, depth: u32) -> Vec3 {
+    let hit = scene_hit(ray, scene, 0.001, std::f32::MAX);
     // return color for closest hit, or background
-    match result {
+    match hit {
         // we hit something, so do a bounce in a random direction
         Some(h) => {
-            let newRay = Ray {
-                origin: h.point,
-                direction: h.normal + rand_unit_sphere(),
-            };
-            // absorb half the energy on bounce
-            0.5 * trace_ray(&newRay, &scene)
+            if depth < 8 {
+                let (atten, scattered_ray) = h.material.scatter(&ray, &h);
+                let col = trace_ray(&scattered_ray, &scene, depth + 1);
+                vec3(atten.x * col.x, atten.y * col.y, atten.z * col.z)
+            } else {
+                vec3(0.0, 0.0, 0.0)
+            }
         }
         // we did not hit anything, so return background color
         None => background_color_gradient(&ray),
@@ -106,22 +128,18 @@ fn trace_ray(ray: &Ray, scene: &Vec<Box<SceneObject>>) -> Vec3 {
 }
 
 trait SceneObject {
-    fn ray_hit(&self, ray: &Ray, t_min: f32, t_max: f32) -> Option<HitResult>;
-}
-
-struct HitResult {
-    t: f32,
-    point: Vec3,
-    normal: Vec3,
+    fn ray_hit(&self, ray: &Ray, t_min: f32, t_max: f32) -> Option<HitRecord>;
+    fn get_material<'a>(&'a self) -> &'a Box<dyn Material>;
 }
 
 struct Sphere {
     position: Vec3,
     radius: f32,
+    material: Box<dyn Material>,
 }
 
 impl SceneObject for Sphere {
-    fn ray_hit(&self, ray: &Ray, t_min: f32, t_max: f32) -> Option<HitResult> {
+    fn ray_hit(&self, ray: &Ray, t_min: f32, t_max: f32) -> Option<HitRecord> {
         // define sphere with center C and radius R where all point P on sphere satisfy:
         //            ||P-C||^2 = R^2
         // or: dot((P-C),(P-C)) = R^2
@@ -155,13 +173,18 @@ impl SceneObject for Sphere {
             } else {
                 let p = ray.point_at(t);
                 let n = normalize(&(p - self.position));
-                Some(HitResult {
+                Some(HitRecord {
                     t: t,
                     point: p,
                     normal: n,
+                    material: &self.material,
                 })
             }
         }
+    }
+
+    fn get_material<'a>(&'a self) -> &'a Box<Material> {
+        &self.material
     }
 }
 
@@ -204,9 +227,9 @@ impl Ray {
 
 fn background_color_gradient(ray: &Ray) -> Vec3 {
     let unit_dir: Vec3 = glm::normalize(&ray.direction);
-    let ground_color: Vec3 = Vec3::new(0.9, 0.9, 0.9);
-    let sky_color: Vec3 = Vec3::new(0.5, 0.5, 0.5);
-    let t = 1.0 * (unit_dir.y + 0.5);
+    let ground_color: Vec3 = Vec3::new(1.0, 1.0, 1.0);
+    let sky_color: Vec3 = Vec3::new(0.1, 0.2, 1.0);
+    let t = 0.5 * (unit_dir.y + 1.0);
     glm::lerp(&ground_color, &sky_color, t)
 }
 
@@ -229,4 +252,42 @@ fn encode_gamma(color: &Vec3, gamma: f32) -> Vec3 {
     let inv = 1.0 / gamma;
     let exp = vec3(inv, inv, inv);
     glm::pow(color, &exp)
+}
+
+fn reflect(v: &Vec3, n: &Vec3) -> Vec3 {
+    v - 2.0 * dot(v, n) * n
+}
+
+struct HitRecord<'a> {
+    t: f32,
+    point: Vec3,
+    normal: Vec3,
+    material: &'a Box<Material>,
+}
+
+trait Material {
+    fn scatter(&self, ray: &Ray, hit: &HitRecord) -> (Vec3, Ray);
+}
+
+struct Diffuse {
+    albedo: Vec3,
+}
+
+impl Material for Diffuse {
+    fn scatter(&self, _ray: &Ray, hit: &HitRecord) -> (Vec3, Ray) {
+        let attenuation = self.albedo;
+        let ray = Ray {
+            origin: hit.point,
+            direction: hit.normal + rand_unit_sphere(),
+        };
+        (attenuation, ray)
+    }
+}
+
+impl Default for Diffuse {
+    fn default() -> Self {
+        Diffuse {
+            albedo: vec3(1.0, 1.0, 1.0),
+        }
+    }
 }
