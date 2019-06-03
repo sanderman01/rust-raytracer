@@ -9,8 +9,8 @@ use std::path::Path;
 use std::time::Instant;
 
 fn main() {
-    let width = 1024;
-    let height = 512;
+    let width = 512;
+    let height = 256;
     let mut img: RgbImage = RgbImage::new(width, height);
 
     let camera = Camera {
@@ -43,7 +43,7 @@ fn main() {
     let sphere3 = Box::new(Sphere {
         position: vec3(0.0, -101.0, 0.0),
         radius: 100.0,
-        material: Box::new(Diffuse {
+        material: Box::new(Metal {
             albedo: vec3(1.0, 1.0, 1.0),
         }),
     });
@@ -220,6 +220,10 @@ struct Ray {
 }
 
 impl Ray {
+    fn new(origin: Vec3, direction: Vec3) -> Ray {
+        Ray { origin, direction }
+    }
+
     fn point_at(&self, t: f32) -> Vec3 {
         self.origin + self.direction * t
     }
@@ -289,5 +293,18 @@ impl Default for Diffuse {
         Diffuse {
             albedo: vec3(1.0, 1.0, 1.0),
         }
+    }
+}
+
+struct Metal {
+    albedo: Vec3,
+}
+
+impl Material for Metal {
+    fn scatter(&self, _ray: &Ray, hit: &HitRecord) -> (Vec3, Ray) {
+        let refl = reflect(&_ray.direction, &hit.normal);
+        let scattered_ray = Ray::new(hit.point, refl);
+        let attenuation = self.albedo;
+        (attenuation, scattered_ray)
     }
 }
