@@ -22,15 +22,17 @@ fn main() {
     let sphere = Box::new(Sphere {
         position: vec3(0.0, 0.0, -1.0),
         radius: 1.0,
-        material: Box::new(Diffuse {
+        material: Box::new(Metal {
             albedo: vec3(0.5, 1.0, 0.5),
+            scattering: 0.2,
         }),
     });
     let sphere1 = Box::new(Sphere {
         position: vec3(2.0, 0.0, -1.0),
         radius: 1.0,
-        material: Box::new(Diffuse {
+        material: Box::new(Metal {
             albedo: vec3(0.5, 0.5, 1.0),
+            scattering: 0.0,
         }),
     });
     let sphere2 = Box::new(Sphere {
@@ -43,7 +45,7 @@ fn main() {
     let sphere3 = Box::new(Sphere {
         position: vec3(0.0, -101.0, 0.0),
         radius: 100.0,
-        material: Box::new(Metal {
+        material: Box::new(Diffuse {
             albedo: vec3(1.0, 1.0, 1.0),
         }),
     });
@@ -116,8 +118,15 @@ fn trace_ray(ray: &Ray, scene: &Vec<Box<SceneObject>>, depth: u32) -> Vec3 {
         Some(h) => {
             if depth < 8 {
                 let (atten, scattered_ray) = h.material.scatter(&ray, &h);
-                let col = trace_ray(&scattered_ray, &scene, depth + 1);
-                vec3(atten.x * col.x, atten.y * col.y, atten.z * col.z)
+                match scattered_ray {
+                    Some(r) => {
+                        let col = trace_ray(&r, &scene, depth + 1);
+                        vec3(atten.x * col.x, atten.y * col.y, atten.z * col.z)
+                    },
+                    None => {
+                        vec3(0.0, 0.0, 0.0)
+                    }
+                }
             } else {
                 vec3(0.0, 0.0, 0.0)
             }
@@ -270,7 +279,7 @@ struct HitRecord<'a> {
 }
 
 trait Material {
-    fn scatter(&self, ray: &Ray, hit: &HitRecord) -> (Vec3, Ray);
+    fn scatter(&self, ray: &Ray, hit: &HitRecord) -> (Vec3, Option<Ray>);
 }
 
 struct Diffuse {
@@ -278,13 +287,13 @@ struct Diffuse {
 }
 
 impl Material for Diffuse {
-    fn scatter(&self, _ray: &Ray, hit: &HitRecord) -> (Vec3, Ray) {
+    fn scatter(&self, _ray: &Ray, hit: &HitRecord) -> (Vec3, Option<Ray>) {
         let attenuation = self.albedo;
         let ray = Ray {
             origin: hit.point,
             direction: hit.normal + rand_unit_sphere(),
         };
-        (attenuation, ray)
+        (attenuation, Some(ray))
     }
 }
 
@@ -298,13 +307,19 @@ impl Default for Diffuse {
 
 struct Metal {
     albedo: Vec3,
+    scattering: f32,
 }
 
 impl Material for Metal {
-    fn scatter(&self, _ray: &Ray, hit: &HitRecord) -> (Vec3, Ray) {
-        let refl = reflect(&_ray.direction, &hit.normal);
-        let scattered_ray = Ray::new(hit.point, refl);
+    fn scatter(&self, _ray: &Ray, hit: &HitRecord) -> (Vec3, Option<Ray>) {
+        let reflected = reflect(&_ray.direction, &hit.normal);
+        let scattered_ray = Ray::new(hit.point, reflected + self.scattering * rand_unit_sphere());
         let attenuation = self.albedo;
-        (attenuation, scattered_ray)
+
+        if dot(&scattered_ray.direction, &hit.normal) > 0.0 {
+            (attenuation, Some(scattered_ray))
+        } else {
+            (attenuation, None)
+        }
     }
 }
