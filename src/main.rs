@@ -1,16 +1,18 @@
 extern crate image;
 extern crate nalgebra_glm as glm;
 extern crate rand;
+extern crate rayon;
 
 use glm::{dot, normalize, vec3, Vec3};
 use image::{Rgb, RgbImage};
 use rand::Rng;
+use rayon::prelude::*;
 use std::path::Path;
 use std::time::Instant;
 
 fn main() {
-    let width = 512;
-    let height = 256;
+    let width = 2048;
+    let height = 1024;
     let mut img: RgbImage = RgbImage::new(width, height);
 
     let camera = Camera {
@@ -65,25 +67,36 @@ fn render_image(camera: &Camera, scene: &Vec<Box<SceneObject>>, image: &mut RgbI
     let width = image.width();
     let height = image.height();
     let aspect_ratio = (width as f32) / (height as f32);
-    let num_samples = 32;
-    let mut rng = rand::thread_rng();
-    // for each pixel
-    for y in 0..height {
-        for x in 0..width {
+    let num_samples = 64;
+    let pixel_indices: Vec<(u32, u32, &mut Rgb<u8>)> = image.enumerate_pixels_mut().collect();
+
+    // for each pixel, shoot rays to determine color.
+    // use rayon's parallel iterator to divide work over all cpu cores.
+    let pixels: Vec<(u32, u32, Rgb<u8>)> = pixel_indices
+        .par_iter()
+        .map(|(x, y, _)| {
             // do a number of ray samples
+            let mut rng = rand::thread_rng();
             let mut total_color = vec3(0.0, 0.0, 0.0);
             for _s in 0..num_samples {
-                let u: f32 = (x as f32 + rng.gen::<f32>()) / width as f32;
-                let v: f32 = (y as f32 + rng.gen::<f32>()) / height as f32;
+                let u: f32 = (*x as f32 + rng.gen::<f32>()) / width as f32;
+                let v: f32 = (*y as f32 + rng.gen::<f32>()) / height as f32;
                 let ray = camera.screen_to_ray(u, v, aspect_ratio);
                 let depth = 0;
                 let color = trace_ray(&ray, &scene, depth);
                 total_color += color;
             }
+            // determine final result pixel color
             let total_color = total_color / num_samples as f32;
             let final_color = encode_gamma(&total_color, 2.2);
-            image.put_pixel(x, y, vec3_to_rgb(&final_color));
-        }
+            let c: Rgb<u8> = vec3_to_rgb(&final_color);
+            (*x, *y, c)
+        })
+        .collect();
+
+    // write pixel data to image
+    for (x, y, c) in pixels {
+        image.put_pixel(x, y, c);
     }
 }
 
@@ -116,16 +129,14 @@ fn trace_ray(ray: &Ray, scene: &Vec<Box<SceneObject>>, depth: u32) -> Vec3 {
     match hit {
         // we hit something, so do a bounce in a random direction
         Some(h) => {
-            if depth < 8 {
+            if depth < 64 {
                 let (atten, scattered_ray) = h.material.scatter(&ray, &h);
                 match scattered_ray {
                     Some(r) => {
                         let col = trace_ray(&r, &scene, depth + 1);
                         vec3(atten.x * col.x, atten.y * col.y, atten.z * col.z)
-                    },
-                    None => {
-                        vec3(0.0, 0.0, 0.0)
                     }
+                    None => vec3(0.0, 0.0, 0.0),
                 }
             } else {
                 vec3(0.0, 0.0, 0.0)
@@ -136,7 +147,7 @@ fn trace_ray(ray: &Ray, scene: &Vec<Box<SceneObject>>, depth: u32) -> Vec3 {
     }
 }
 
-trait SceneObject {
+trait SceneObject: Sync + Send {
     fn ray_hit(&self, ray: &Ray, t_min: f32, t_max: f32) -> Option<HitRecord>;
     fn get_material<'a>(&'a self) -> &'a Box<dyn Material>;
 }
@@ -278,7 +289,7 @@ struct HitRecord<'a> {
     material: &'a Box<Material>,
 }
 
-trait Material {
+trait Material: Send + Sync {
     fn scatter(&self, ray: &Ray, hit: &HitRecord) -> (Vec3, Option<Ray>);
 }
 
