@@ -3,7 +3,7 @@ extern crate nalgebra_glm as glm;
 extern crate rand;
 extern crate rayon;
 
-use glm::{dot, normalize, vec3, Vec3};
+use glm::{dot, normalize, vec3, Mat4, Vec3};
 use image::{Rgb, RgbImage};
 use rand::Rng;
 use rayon::prelude::*;
@@ -15,10 +15,15 @@ fn main() {
     let height = 1024;
     let mut img: RgbImage = RgbImage::new(width, height);
 
+    // position camera to the back and to the left from the origin.
+    let cam_transform = glm::translate(&glm::identity(), &vec3(-2.0, 2.0, 3.0));
+    // point to the right, and then downwards
+    let cam_transform = glm::rotate_y(&cam_transform, -0.5);
+    let cam_transform = glm::rotate_x(&cam_transform, -0.5);
+
     let camera = Camera {
-        position: Vec3::new(0.0, 0.0, 1.0),
-        direction: Vec3::new(0.0, 0.0, -1.0),
-        field_of_view: 45.0,
+        transform: cam_transform,
+        field_of_view: 30.0,
     };
 
     let sphere = Box::new(Sphere {
@@ -209,8 +214,7 @@ impl SceneObject for Sphere {
 }
 
 struct Camera {
-    position: Vec3,
-    direction: Vec3,
+    transform: Mat4,
     field_of_view: f32,
 }
 
@@ -227,8 +231,10 @@ impl Camera {
 
         let lower_left = vec3(-rect_extends_x, -rect_extends_y, -rect_dist);
 
-        let origin = self.position;
         let direction = lower_left + horizontal * u + vertical * (1.0 - v);
+
+        let origin: Vec3 = (self.transform * glm::vec4(0.0, 0.0, 0.0, 1.0)).xyz();
+        let direction: Vec3 = (self.transform * glm::vec3_to_vec4(&direction)).xyz();
 
         Ray { origin, direction }
     }
