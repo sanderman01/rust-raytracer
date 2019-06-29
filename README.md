@@ -11,4 +11,4 @@ If you want to build and run this program, then I highly recommend you use relea
 
 `cargo run --release`
 
-[Raytracer output image](output.png)
+![Raytracer output image](output.png)
