@@ -16,48 +16,17 @@ fn main() {
     let mut img: RgbImage = RgbImage::new(width, height);
 
     // position camera to the back and to the left from the origin.
-    let cam_transform = glm::translate(&glm::identity(), &vec3(-2.0, 2.0, 3.0));
+    let cam_transform = glm::translate(&glm::identity(), &vec3(0.0, 5.0, 20.0));
     // point to the right, and then downwards
-    let cam_transform = glm::rotate_y(&cam_transform, -0.5);
-    let cam_transform = glm::rotate_x(&cam_transform, -0.5);
+    //let cam_transform = glm::rotate_y(&cam_transform, -0.5);
+    let cam_transform = glm::rotate_x(&cam_transform, -0.3);
 
     let camera = Camera {
         transform: cam_transform,
         field_of_view: 30.0,
     };
 
-    let sphere = Box::new(Sphere {
-        position: vec3(0.0, 0.0, -1.0),
-        radius: 1.0,
-        material: Box::new(Metal {
-            albedo: vec3(0.5, 1.0, 0.5),
-            scattering: 0.2,
-        }),
-    });
-    let sphere1 = Box::new(Sphere {
-        position: vec3(2.0, 0.0, -1.0),
-        radius: 1.0,
-        material: Box::new(Metal {
-            albedo: vec3(0.5, 0.5, 1.0),
-            scattering: 0.0,
-        }),
-    });
-    let sphere2 = Box::new(Sphere {
-        position: vec3(-2.0, 0.0, -1.0),
-        radius: 1.0,
-        material: Box::new(Diffuse {
-            albedo: vec3(1.0, 0.5, 0.5),
-        }),
-    });
-    let sphere3 = Box::new(Sphere {
-        position: vec3(0.0, -101.0, 0.0),
-        radius: 100.0,
-        material: Box::new(Diffuse {
-            albedo: vec3(1.0, 1.0, 1.0),
-        }),
-    });
-
-    let scene: Vec<Box<dyn SceneObject>> = vec![sphere, sphere1, sphere2, sphere3];
+    let scene = create_scene();
 
     let now = Instant::now();
     render_image(&camera, &scene, &mut img);
@@ -66,6 +35,53 @@ fn main() {
 
     let path = &Path::new("target/out.png");
     let _ = img.save(path);
+}
+
+fn create_scene() -> Vec<Box<SceneObject>> {
+    let mut scene: Vec<Box<dyn SceneObject>> = Vec::new();
+
+    // add 'ground' (we could implement a plane shape, but I'm lazy so right now just use  large sphere)
+    let ground = Box::new(Sphere {
+        //position: vec3(rng.gen_range(0.0,10.0), 1.0, rng.gen_range(0.0,10.0)),
+        position: vec3(0.0, -10000.0, 0.0),
+        radius: 10000.0,
+        material: Box::new(Diffuse {
+            albedo: vec3(1.0, 1.0, 1.0),
+        }),
+    });
+    scene.push(ground);
+
+    let num_spheres = 80;
+    let extends = 20.0;
+    let mut rng = rand::thread_rng();
+    for _ in 0..num_spheres {
+        let rad = 3.0 * rng.gen_range(0.25, 1.0) * rng.gen_range(0.25, 1.0);
+        let pos = vec3(
+            rng.gen_range(-extends, extends),
+            rad,
+            rng.gen_range(-extends, extends),
+        );
+
+        let rnd_mat: f32 = rng.gen();
+        let mat: Box<Material> = if rnd_mat < 0.5 {
+            Box::new(Diffuse {
+                albedo: vec3(rng.gen(), rng.gen(), rng.gen()),
+            })
+        } else {
+            Box::new(Metal {
+                albedo: vec3(rng.gen(), rng.gen(), rng.gen()),
+                scattering: 0.0,
+            })
+        };
+
+        let sphere = Box::new(Sphere {
+            position: pos,
+            radius: rad,
+            material: mat,
+        });
+        scene.push(sphere);
+    }
+    scene
 }
 
 fn render_image(camera: &Camera, scene: &Vec<Box<SceneObject>>, image: &mut RgbImage) {
@@ -258,7 +274,7 @@ impl Ray {
 fn background_color_gradient(ray: &Ray) -> Vec3 {
     let unit_dir: Vec3 = glm::normalize(&ray.direction);
     let ground_color: Vec3 = Vec3::new(1.0, 1.0, 1.0);
-    let sky_color: Vec3 = Vec3::new(0.1, 0.2, 1.0);
+    let sky_color: Vec3 = Vec3::new(0.2, 0.4, 0.8);
     let t = 0.5 * (unit_dir.y + 1.0);
     glm::lerp(&ground_color, &sky_color, t)
 }
